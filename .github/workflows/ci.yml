@@ -1,0 +1,91 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    # Weekly, so a change in the skills CLI that breaks discovery shows up here
+    # rather than in someone's install.
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - name: Lint skills and skills.sh.json
+        run: node scripts/lint-skills.mjs
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - name: Check fenced python snippets parse
+        run: |
+          python3 - <<'PY'
+          import ast, pathlib, re, sys
+          bad = 0
+          for f in pathlib.Path("skills").rglob("*.md"):
+              for i, block in enumerate(re.findall(r"```python\n(.*?)```", f.read_text(), re.S)):
+                  try:
+                      ast.parse(block)
+                  except SyntaxError as e:
+                      bad += 1
+                      print(f"error {f}: python block {i} does not parse: {e}")
+          print(f"{bad} bad python block(s)")
+          sys.exit(1 if bad else 0)
+          PY
+
+      - name: Check fenced go snippets parse
+        run: |
+          for f in $(grep -rl '```go' skills || true); do
+            python3 - "$f" <<'PY'
+          import re, subprocess, sys, tempfile, pathlib
+          f = pathlib.Path(sys.argv[1])
+          for i, b in enumerate(re.findall(r"```go\n(.*?)```", f.read_text(), re.S)):
+              src = b if b.lstrip().startswith("package") else "package p\n" + b
+              with tempfile.NamedTemporaryFile("w", suffix=".go", delete=False) as fh:
+                  fh.write(src)
+              r = subprocess.run(["gofmt", "-e", fh.name], capture_output=True, text=True)
+              if r.returncode:
+                  print(f"error {f}: go block {i}: {r.stderr.strip()[:200]}")
+                  sys.exit(1)
+          PY
+          done
+
+  install:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - name: Skills CLI discovers every skill
+        env:
+          DISABLE_TELEMETRY: "1"
+        run: |
+          out=$(npx -y skills@latest add . --list 2>&1)
+          echo "$out"
+          # A skill with unparseable frontmatter is skipped with a warning and a
+          # zero exit code, so assert on the output instead of the status.
+          echo "$out" | grep -qi "Skipped" && { echo "::error::skills CLI skipped a skill"; exit 1; }
+          expected=$(ls skills | wc -l | tr -d ' ')
+          echo "$out" | grep -qi "Found $expected skill" || {
+            echo "::error::expected $expected discoverable skill(s)"; exit 1; }
+
+      - name: Install into a scratch project
+        env:
+          DISABLE_TELEMETRY: "1"
+        run: |
+          mkdir -p /tmp/scratch
+          cd /tmp/scratch
+          npx -y skills@latest add "$GITHUB_WORKSPACE" --skill '*' -a claude-code --copy -y
+          find .claude/skills -name SKILL.md | sort
+          test "$(find .claude/skills -name SKILL.md | wc -l | tr -d ' ')" = "$(ls "$GITHUB_WORKSPACE/skills" | wc -l | tr -d ' ')"
