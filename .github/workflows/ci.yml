@@ -71,14 +71,20 @@ jobs:
         env:
           DISABLE_TELEMETRY: "1"
         run: |
-          out=$(npx -y skills@latest add . --list 2>&1)
-          echo "$out"
+          # The CLI colorizes output, so escape codes land between words. Strip
+          # them before asserting on anything.
+          npx -y skills@latest add . --list 2>&1 | sed -E 's/\x1b\[[0-9;]*[a-zA-Z]//g' > /tmp/list.txt
+          cat /tmp/list.txt
           # A skill with unparseable frontmatter is skipped with a warning and a
           # zero exit code, so assert on the output instead of the status.
-          echo "$out" | grep -qi "Skipped" && { echo "::error::skills CLI skipped a skill"; exit 1; }
-          expected=$(ls skills | wc -l | tr -d ' ')
-          echo "$out" | grep -qi "Found $expected skill" || {
-            echo "::error::expected $expected discoverable skill(s)"; exit 1; }
+          if grep -qi "skipped" /tmp/list.txt; then
+            echo "::error::skills CLI skipped a skill"; exit 1
+          fi
+          for name in $(ls skills); do
+            grep -qx "[^A-Za-z0-9]*$name" /tmp/list.txt || {
+              echo "::error::skill '$name' was not listed by the CLI"; exit 1; }
+          done
+          echo "all $(ls skills | wc -l | tr -d ' ') skill(s) discovered"
 
       - name: Install into a scratch project
         env:
