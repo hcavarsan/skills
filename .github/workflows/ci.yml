@@ -108,3 +108,21 @@ jobs:
           npx -y skills@latest add "$GITHUB_WORKSPACE" --skill '*' -a claude-code --copy -y
           find .claude/skills -name SKILL.md | sort
           test "$(find .claude/skills -name SKILL.md | wc -l | tr -d ' ')" = "$(ls "$GITHUB_WORKSPACE/skills" | wc -l | tr -d ' ')"
+
+  zizmor:
+    name: audit workflows
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # advanced-security: false on purpose. In Advanced Security mode the action
+      # uploads SARIF but never fails the run, and this job exists to block.
+      - uses: zizmorcore/zizmor-action@3dc1ecc9bcb9e94e9b2c709687979e1298497054 # v0.6.2
+        with:
+          inputs: .github
+          persona: auditor
+          advanced-security: false
+          annotations: true
