@@ -1,0 +1,13 @@
+{
+  "$schema": "https://skills.sh/schemas/skills.sh.schema.json",
+  "notGrouped": "bottom",
+  "groupings": [
+    {
+      "title": "Observability",
+      "description": "Instrumentation, logging, and telemetry patterns for production services.",
+      "skills": [
+        "log-wide-events"
+      ]
+    }
+  ]
+}
